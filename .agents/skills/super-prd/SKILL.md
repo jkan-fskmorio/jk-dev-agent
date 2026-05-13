@@ -3,59 +3,70 @@ name: super-prd
 description: Generate technical Product Requirements Documents (PRDs) for software systems. Supports dual-mode: quick synthesis from conversation context, or deep discovery through structured interview. Use when user wants to create a PRD, document requirements, plan a feature, or turn conversation context into a specification.
 ---
 
-# Super PRD
-
 ## Mode Selection
 
 Assess the conversation context before starting:
 
 | Mode | Trigger | Behavior |
 |------|---------|-----------|
-| **Quick** | Context already rich with requirements, user stories, and technical decisions | Synthesize directly from context, no additional interview |
+| **Quick** | Context already rich with requirements, user stories, and technical decisions | Explore the repo to understand current codebase state, then synthesize PRD directly from context |
 | **Deep** | Requirements are vague, missing key dimensions | Initiate structured discovery interview (1-3 rounds) |
 
 Announce which mode you're using and why.
+
+## Quick Mode
+
+1. Explore the repository to understand the current codebase state, domain glossary, and relevant ADRs.
+2. Identify major modules to build or modify. Look for opportunities to extract **deep modules** — modules that encapsulate significant functionality behind a simple, testable interface that rarely changes.
+3. Synthesize the PRD from conversation context and codebase understanding.
 
 ## Deep Mode: Discovery Interview
 
 Ask across these dimensions, one round at a time. Stop when all dimensions are sufficiently clear (max 3 rounds).
 
-1. **项目背景** — 核心问题？目标用户？使用场景？现有替代方案和痛点？
-2. **功能范围** — Must-have 核心功能？Nice-to-have 辅助功能？明确的 Non-goals？
-3. **技术约束** — 指定技术栈？现有系统集成？性能/安全/合规要求？
-4. **成功指标** — 可量化的 KPI 或 OKR？
+1. **Project Background** — Core problem? Target users? Use scenarios? Current alternatives and pain points?
+2. **Feature Scope** — Must-have core features? Nice-to-have auxiliary features? Explicit Non-Goals?
+3. **Technical Constraints** — Specified tech stack? Existing system integration? Performance/security/compliance requirements?
+4. **Success Metrics** — Quantifiable KPIs or OKRs?
 
 ## PRD Template
 
 Generate the PRD using the structure below. For detailed guidance on each section, tech stack recommendations, and examples, refer to `prd-expert-prompts.md`.
 
-1. **背景** — 问题陈述、项目目标、成功指标（3-5 个可量化 KPI）、术语表
-2. **用户故事** — 用户画像、故事列表（P0/P1/P2 优先级）、Gherkin 验收标准（含异常流和边界条件）、Non-Goals
-3. **功能模块设计** — 模块划分、依赖关系、交互接口、可复用模块
-4. **流程设计** — 业务流程图、数据流程图、核心功能流程图（Mermaid 或文字描述）
-5. **技术选型** — 前端/后端/数据库/部署方案，每个选型附理由
-6. **架构设计** — 系统架构图、组件交互、部署架构
-7. **数据库设计** — 表结构（字段、类型、约束、关系）、索引策略、迁移方案
-8. **API 设计** — 规范（RESTful/GraphQL）、端点清单（方法、路径、请求/响应）、认证授权
-9. **前端和 UI 设计** — UI 风格、组件库规范、状态管理、响应式策略
-10. **项目规范** — 代码规范、注释规范、Git 工作流、目录结构
-11. **开发边界** — 禁止触碰的文件/模块、技术债务、未来扩展点
-12. **参考技术文档** — 官方文档、最佳实践、相关 ADR
+1. **Background** — Problem statement, project goals, success metrics (3-5 quantifiable KPIs), glossary
+2. **User Stories** — Personas, story list (P0/P1/P2 priority), Gherkin acceptance criteria (include error flows and edge cases), Non-Goals
+3. **Module Design** — Module breakdown, dependencies, interfaces, reusable modules. Identify deep modules where applicable.
+4. **Process Design** — Business process flows, data flows, core function flows (Mermaid or text description)
+5. **Technology Stack** — Frontend/backend/database/deployment choices, each with rationale
+6. **Architecture Design** — System architecture diagram, component interaction, deployment architecture
+7. **Database Design** — Table structures (fields, types, constraints, relationships), index strategy, migration plan
+8. **API Design** — Specification (RESTful/GraphQL), endpoint inventory (method, path, request/response), authentication and authorization
+9. **Frontend & UI Design** — UI style, component library conventions, state management, responsive strategy
+10. **AI System Requirements** (if applicable) — Tool and API requirements, model selection rationale, evaluation strategy
+11. **Project Conventions** — Code style, comment conventions, Git workflow, directory structure
+12. **Development Boundaries** — Untouchable files/modules, technical debt, future extension points
+13. **References** — Official documentation, best practices, related ADRs
 
 ## Quality Standards
 
-- 所有指标具体可量化，避免"快""好用""直观"等模糊词
-- 用户故事遵循 INVEST 原则，验收标准使用 Gherkin 语法
-- 技术选型有对比和理由，数据库设计含完整字段定义
-- API 设计符合规范，架构图清晰展示交互和数据流
+- All metrics are concrete and quantifiable — avoid "fast", "intuitive", "modern"
+- User stories follow INVEST principles; acceptance criteria use Gherkin syntax with error flows and edge cases
+- Technology choices include comparison and rationale; database design includes complete field definitions
+- API design follows specifications; architecture diagrams clearly show interactions and data flows
+
+## Output & Iteration
+
+- Default output language: Chinese (technical terms retain English originals with Chinese annotation on first use)
+- After delivering the PRD draft, ask for feedback and iterate on specific sections
+- Maximum 3 iteration rounds, focusing on 1-2 sections per round
 
 ## Boundary Limits
 
-- 不讨论商业化方向（定价、市场策略、盈利模式）
-- 不直接修改代码文件，仅生成规范和示例
-- 不访问生产环境或敏感配置
-- 不生成具体业务逻辑代码，仅定义接口和规范
+- Do not discuss commercialization (pricing, market strategy, revenue models)
+- Do not modify code files directly — only generate specifications and examples
+- Do not access production environments or sensitive configurations
+- Do not generate concrete business logic code — only define interfaces and contracts
 
 ## Reference
 
-完整技术栈推荐、5 阶段工作流详解、示例输出片段，参见配套 Prompt：`prd-expert-prompts.md`。
+For complete tech stack recommendations, 5-phase workflow details, and example output snippets, see companion Prompt: `prd-expert-prompts.md`.
