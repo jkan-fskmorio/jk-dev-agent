@@ -1,4 +1,4 @@
-# VentureHub（创业想法交流平台）产品需求文档
+# 创享 / Tron Share 产品需求文档
 
 > **版本**: v1.0
 > **日期**: 2026-05-13
@@ -182,7 +182,7 @@
 ### 3.1 模块总览
 
 ```
-venturehub/
+tronshare/
 ├── user-service/          # 用户模块（注册、登录、资料管理）
 ├── venture-service/       # 创业想法模块（CRUD、分类、搜索）
 ├── payment-service/       # 支付模块（付费方案购买、众筹、分账）
@@ -813,7 +813,7 @@ src/
 ### 11.3 目录结构（Monorepo）
 
 ```
-venturehub/
+tronshare/
 ├── backend/
 │   ├── services/         # 各微服务
 │   │   ├── user_service/
