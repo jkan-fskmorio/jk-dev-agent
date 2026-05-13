@@ -194,7 +194,108 @@ tronshare/
 └── admin-service/         # 管理后台模块（用户管理、内容管理、数据统计）
 ```
 
-### 3.2 模块依赖关系
+### 3.2 模块详细说明
+
+**user-service（用户模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 用户注册、登录认证、Token 管理、个人资料 CRUD、角色管理 |
+| 数据存储 | MySQL `users` 表，Redis 存储 Session/Refresh Token 和验证码 |
+| 关键功能 | 邮箱验证注册、JWT 双 Token 机制（Access 15min + Refresh 7d）、密码 bcrypt 哈希、登录失败限流（5 次锁定 15 分钟）、角色枚举（user/mentor/investor/admin） |
+| 对外接口 | RESTful API `/api/v1/users/*`，提供用户公开信息查询和按行业/城市搜索 |
+| 依赖 | 邮件服务（SMTP）、Redis（会话缓存） |
+| 技术要点 | 使用 FastAPI 中间件实现 JWT 鉴权，Pydantic 模型做请求验证，Alembic 管理 Schema 迁移 |
+
+**venture-service（创业想法模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 创业想法的创建、编辑、软删除、列表展示、详情查看、全文搜索 |
+| 数据存储 | MySQL `ventures` 表存元数据（标题、类型、行业、城市、价格、状态等），MongoDB `venture_contents` 集合存 Markdown 正文、图片、附件，Elasticsearch 存搜索索引 |
+| 关键功能 | 支持三种类型（concept 概念/plan 方案/discussion 讨论）、付费内容鉴权（检查 orders 表购买记录）、浏览量计数（Redis 异步刷回 MySQL）、内容版本管理（MongoDB version 字段） |
+| 对外接口 | RESTful API `/api/v1/ventures/*`，列表支持行业+城市+类型组合筛选和分页，搜索走 Elasticsearch |
+| 依赖 | user-service（作者信息）、content-audit-service（内容审核）、matching-service（ES 索引同步）、payment-service（付费鉴权） |
+| 技术要点 | 列表查询使用 Redis 缓存热点数据（首页 Top 100），详情页按需从 MongoDB 加载正文，软删除通过 is_deleted 标记实现数据可恢复 |
+
+**payment-service（支付模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 订单创建与管理、微信/支付宝支付对接、支付回调处理、平台分账计算、退款流程 |
+| 数据存储 | MySQL `orders` 表，Redis 缓存支付状态和支付中订单 |
+| 关键功能 | 生成唯一订单号（UUID v7）、调用微信支付 API V3 / 支付宝 SDK 生成支付链接、异步回调验签（RSA/SM2）、支付状态轮询补偿（30 分钟内每 5 秒查询一次）、平台抽成 10%-20% 自动分账计算、WebSocket 实时推送支付结果 |
+| 对外接口 | RESTful API `/api/v1/payments/*`，支付回调端点不鉴权但需签名验证 |
+| 依赖 | venture-service（方案信息）、user-service（买家/卖家信息）、微信支付 API、支付宝 API |
+| 技术要点 | 回调接口需做幂等处理（基于订单号去重），支付超时 30 分钟自动取消，分账金额写入 seller_amount 字段，所有金额使用 Decimal 类型避免浮点精度问题 |
+
+**messaging-service（消息模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 用户间私信发送与接收、会话列表管理、WebSocket 实时消息推送、系统通知 |
+| 数据存储 | MySQL `messages` 表存消息元数据（发送者、接收者、已读状态），MongoDB `message_contents` 集合存消息正文和附件，Redis Pub/Sub 实现跨实例消息推送 |
+| 关键功能 | 支持文本/图片/文件三种消息类型、一对一实时聊天、未读消息红点计数、拉黑用户拦截（检查 block_list 表）、消息已读状态更新、离线消息缓存（Redis 暂存，上线后推送到 MongoDB） |
+| 对外接口 | RESTful API `/api/v1/messages/*` + WebSocket 端点 `/ws` |
+| 依赖 | user-service（用户信息、拉黑关系） |
+| 技术要点 | WebSocket 连接使用 JWT Token 鉴权（连接时在 URL 参数传递），Redis Pub/Sub 实现多实例广播，消息发送失败时写入死信队列重试 3 次 |
+
+**social-service（社交模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 评论发布与管理、点赞/取消点赞、用户关注/取关、关注动态流 |
+| 数据存储 | MongoDB `comments` 集合存评论内容（支持嵌套回复 parent_id），MySQL 冗余存储评论计数 |
+| 关键功能 | 评论支持 Markdown 格式、支持楼中楼回复（parent_id 树形结构）、评论需经过 content-audit-service 审核、评论计数冗余在 ventures 表 comment_count 字段（最终一致性）、用户间关注关系、关注用户的创业想法动态推送 |
+| 对外接口 | RESTful API `/api/v1/comments/*`，后续扩展点赞和关注 API |
+| 依赖 | venture-service（关联创业想法）、user-service（评论者信息）、content-audit-service（评论审核） |
+| 技术要点 | 评论列表按 created_at 倒序分页，热门评论按点赞数加权排序，评论计数使用 Redis 原子操作先更新再异步同步到 MySQL |
+
+**crowdfunding-service（众筹模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 众筹项目的创建、审核、展示、支持（支付）、进度追踪、状态管理 |
+| 数据存储 | MySQL `crowdfunding_projects` 表和 `crowdfunding_supports` 表 |
+| 关键功能 | 项目生命周期管理（draft → reviewing → active → completed/failed/cancelled）、目标金额与已筹金额实时对比、支持者列表展示、支持金额可选档位、项目到期自动结算（end_date 后触发状态变更）、支持记录关联 orders 表 |
+| 对外接口 | RESTful API `/api/v1/crowdfunding/*` |
+| 依赖 | payment-service（支付下单）、user-service（发起人/支持者信息） |
+| 技术要点 | raised_amount 使用 Redis 原子递增避免并发超卖，项目到期后通过定时任务自动更新状态，支持记录写入 crowdfunding_supports 表作为审计日志 |
+
+**matching-service（匹配与推荐模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 行业+城市+类型多维度筛选、Elasticsearch 全文搜索、基于标签的用户/内容推荐 |
+| 数据存储 | 直接查询 Elasticsearch（搜索索引），MySQL `users` 表（用户标签），Redis（缓存热点搜索结果） |
+| 关键功能 | 组合筛选器（行业下拉 + 城市下拉 + 类型 Tab）、ES 中文分词全文搜索（IK 分词器）、搜索结果按相关性+时间双因子排序、基于用户标签的协同过滤推荐（P2 阶段）、搜索建议自动补全、热门搜索词统计 |
+| 对外接口 | 被 venture-service 和前端直接调用，提供内部查询接口 |
+| 依赖 | Elasticsearch（索引数据由 venture-service 在内容变更时同步）、user-service（用户偏好标签） |
+| 技术要点 | ES 索引 Mapping 使用 IK 分词器对 title 和 content 字段做中文分词，搜索结果缓存 5 分钟降低 ES 压力，筛选条件使用 ES Bool Query 组合 must/filter/should 子句 |
+
+**content-audit-service（内容审核模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 用户提交内容的自动审核（AI + 敏感词）、人工审核队列管理、审核策略配置 |
+| 数据存储 | Redis 存审核队列和审核结果缓存，MySQL 存审核日志 |
+| 关键功能 | 内置敏感词库（支持正则匹配和词表匹配）、调用百度/阿里云 AI 内容审核 API 做图片和文本检测、三级审核结果（safe 直接通过 / review 人工复核 / block 拒绝）、人工审核后台（admin-service 调用）、审核超时 500ms 降级为人工审核、每日审核统计报表 |
+| 对外接口 | `audit(content, content_type) -> AuditResult` |
+| 依赖 | 百度 AI / 阿里云内容安全 API |
+| 技术要点 | 敏感词库支持热更新（Redis 加载，不重启服务），审核结果缓存 1 小时（相同内容 hash 去重），人工审核队列使用 Redis List 实现 FIFO，审核日志写入 MySQL 用于后续模型优化 |
+
+**admin-service（管理后台模块）**
+
+| 项目 | 说明 |
+|------|------|
+| 核心职责 | 平台数据统计与概览、用户管理（列表、封禁、解封）、内容审核管理、系统配置 |
+| 数据存储 | 读取各业务数据库做聚合统计 |
+| 关键功能 | 仪表盘概览（用户数、内容数、订单数、收入趋势图）、用户列表搜索与筛选（按角色/状态/注册时间）、封禁/解封用户操作（同步更新 Redis 会话使其立即失效）、待审核内容队列管理（调用 content-audit-service 审核接口）、平台收入报表（按日/周/月汇总分账数据） |
+| 对外接口 | RESTful API `/api/v1/admin/*`，所有端点需 admin 角色鉴权 |
+| 依赖 | 所有业务服务（读取数据做聚合统计）、content-audit-service（内容审核操作） |
+| 技术要点 | 统计查询使用 MySQL 聚合函数 + Redis 缓存（每小时刷新），用户封禁需同时清除 Redis 中的 Token 使其立即登出，管理后台前端独立部署可与主站共用 Nginx |
+
+### 3.3 模块依赖关系
 
 ```mermaid
 graph TD
@@ -219,14 +320,14 @@ graph TD
     I --> F
 ```
 
-### 3.3 深度模块（Deep Modules）
+### 3.4 深度模块（Deep Modules）
 
 | 模块 | 封装复杂度 | 对外接口 | 理由 |
 |------|-----------|----------|------|
 | **content-audit-service** | 敏感词库管理、AI 模型调用、审核策略配置 | `audit(text, type) -> AuditResult` | 审核规则复杂且持续迭代，但对外接口极简 |
 | **payment-service** | 微信/支付宝对接、分账逻辑、退款流程、对账 | `createOrder(OrderRequest) -> OrderResult` | 支付链路细节多，封装后业务层只需关注订单 |
 
-### 3.4 模块接口定义
+### 3.5 模块接口定义
 
 **content-audit-service：**
 
@@ -421,6 +522,153 @@ graph TD
 - **实时消息**：WebSocket 长连接，Redis Pub/Sub 实现跨实例消息推送
 - **认证授权**：JWT（JSON Web Token） + RBAC（Role-Based Access Control）权限模型
 - **文件上传**：前端直传对象存储获取预签名 URL，减轻后端压力
+
+### 6.4 数据流设计（Data Flow）
+
+#### 6.4.1 核心数据流总览
+
+```mermaid
+flowchart TD
+    subgraph 用户层
+        U[用户浏览器]
+    end
+
+    subgraph 前端层
+        FE[React SPA]
+        WS_CLIENT[WebSocket Client]
+    end
+
+    subgraph 网关层
+        NGINX[Nginx 反向代理]
+    end
+
+    subgraph 服务层
+        US[user-service]
+        VS[venture-service]
+        PS[payment-service]
+        MS[messaging-service]
+        SS[social-service]
+        CS[crowdfunding-service]
+        MTS[matching-service]
+        CAS[content-audit-service]
+        AS[admin-service]
+    end
+
+    subgraph 中间件层
+        REDIS[(Redis)]
+        ES[(Elasticsearch)]
+    end
+
+    subgraph 存储层
+        MYSQL[(MySQL)]
+        MONGO[(MongoDB)]
+        OSS[对象存储 COS/MinIO]
+    end
+
+    subgraph 外部服务
+        WXPAY[微信支付]
+        ALIPAY[支付宝]
+        EMAIL[邮件服务]
+        AI_API[AI 审核 API]
+    end
+
+    U -->|HTTP/HTTPS| NGINX
+    NGINX -->|静态资源| FE
+    NGINX -->|API 路由| US
+    NGINX -->|API 路由| VS
+    NGINX -->|API 路由| PS
+    NGINX -->|API 路由| MS
+    NGINX -->|API 路由| SS
+    NGINX -->|API 路由| CS
+    NGINX -->|API 路由| MTS
+    NGINX -->|API 路由| AS
+
+    U <-->|WebSocket| WS_CLIENT
+    WS_CLIENT <-->|实时消息| MS
+
+    US -->|读写用户数据| MYSQL
+    US -->|会话/验证码| REDIS
+    US -->|发送邮件| EMAIL
+
+    VS -->|读写元数据| MYSQL
+    VS -->|读写内容| MONGO
+    VS -->|同步索引| ES
+    VS -->|审核请求| CAS
+
+    SS -->|评论数据| MONGO
+    SS -->|评论计数| MYSQL
+    SS -->|审核请求| CAS
+
+    PS -->|订单数据| MYSQL
+    PS -->|支付请求| WXPAY
+    PS -->|支付请求| ALIPAY
+    PS -->|支付状态缓存| REDIS
+
+    MS -->|消息元数据| MYSQL
+    MS -->|消息内容| MONGO
+    MS -->|推送通知| REDIS
+
+    CS -->|项目数据| MYSQL
+    CS -->|支付请求| PS
+
+    MTS -->|搜索查询| ES
+    MTS -->|用户标签| MYSQL
+    MTS -->|缓存结果| REDIS
+
+    CAS -->|调用审核| AI_API
+    CAS -->|审核结果| REDIS
+
+    AS -->|统计查询| MYSQL
+    AS -->|统计查询| MONGO
+
+    FE -->|文件上传| OSS
+```
+
+#### 6.4.2 内容发布数据流
+
+```mermaid
+flowchart LR
+    A[用户提交内容] --> B[前端 Markdown 编辑器]
+    B -->|POST /api/v1/ventures| C[venture-service]
+    C -->|写入元数据| D[(MySQL ventures)]
+    C -->|写入正文| E[(MongoDB venture_contents)]
+    C -->|同步索引| F[(Elasticsearch)]
+    C -->|触发审核| G[content-audit-service]
+    G -->|调用 AI 审核| H[AI 审核 API]
+    H -->|审核结果| G
+    G -->|safe: 更新状态为 published| D
+    G -->|review: 加入人工队列| I[(Redis 审核队列)]
+    G -->|block: 通知用户| J[邮件/站内通知]
+```
+
+#### 6.4.3 付费购买数据流
+
+```mermaid
+flowchart LR
+    A[用户发起购买] --> B[payment-service]
+    B -->|生成订单| C[(MySQL orders)]
+    B -->|返回支付链接| D[前端跳转支付]
+    D -->|微信/支付宝| E[第三方支付网关]
+    E -->|异步回调| F[payment-service callback]
+    F -->|更新订单状态| C
+    F -->|记录购买权限| G[(MySQL 购买记录)]
+    F -->|推送通知| H[Redis Pub/Sub]
+    H -->|WebSocket 推送| I[前端展示成功]
+    F -->|分账计算| J[(MySQL 分账记录)]
+```
+
+#### 6.4.4 搜索与推荐数据流
+
+```mermaid
+flowchart LR
+    A[用户输入搜索词/筛选条件] --> B[matching-service]
+    B -->|构建查询| C[(Elasticsearch)]
+    C -->|全文检索 + 标签过滤| B
+    B -->|查询用户画像| D[(MySQL users)]
+    B -->|合并排序| E[推荐算法引擎]
+    E -->|缓存热点结果| F[(Redis)]
+    E -->|返回排序结果| G[前端渲染列表]
+```
 
 ---
 
